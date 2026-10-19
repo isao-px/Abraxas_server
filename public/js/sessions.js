@@ -28,6 +28,7 @@ function row(s) {
   const notes = [fmtDuration((end - start) / 1000)];
   if (s.n_gps === 0) notes.push('sans GPS');
   if (s.n_anemo === 0) notes.push('sans vent');
+  if (s.has_video) notes.push('vidéo');
   meta.textContent = notes.join(' · ');
 
   link.append(main, meta);

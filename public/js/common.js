@@ -55,6 +55,36 @@ function saveCode(code) {
   } catch (e) {}
 }
 
+export function fmtSize(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return fmt(bytes / 1024 / 1024 / 1024, 2) + ' Go';
+  if (bytes >= 1024 * 1024) return fmt(bytes / 1024 / 1024, 0) + ' Mo';
+  return fmt(bytes / 1024, 0) + ' Ko';
+}
+
+// Envoi d'un fichier brut avec suivi de progression (fetch ne sait pas suivre l'envoi).
+// Résout { status, data } ; rejette seulement si la connexion est coupée.
+export function sendFile(url, file, code, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-Access-Code', code);
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onerror = () => reject(new Error('Connexion interrompue pendant l’envoi. Réessaie.'));
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (e) {}
+      resolve({ status: xhr.status, data });
+    };
+    xhr.send(file);
+  });
+}
+
 export async function callWithCode(url, method, body) {
   for (let attempt = 0; attempt < 2; attempt++) {
     let code = storedCode();

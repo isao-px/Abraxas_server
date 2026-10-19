@@ -1,16 +1,22 @@
-import { fmt, naiveDate, fmtClock, fmtDate, fmtElapsed, fmtDuration, getJson, callWithCode } from './common.js';
+import { fmt, naiveDate, fmtClock, fmtDate, fmtElapsed, fmtDuration, fmtSize, getJson, callWithCode, storedCode, sendFile } from './common.js';
 import { renderMarkdown } from './md.js';
 
 const $ = (id) => document.getElementById(id);
-const READOUT = { sog: 1, cog: 0, awa: 0, aws: 1, twa: 0, tws: 1, vmg: 1, pitch: 1, roll: 1 };
+const READOUT = { sog: 1, cog: 0, awa: 0, aws: 1, twa: 0, tws: 1, twd: 0, vmg: 1, pitch: 1, roll: 1 };
 const CHARTS = [
   { key: 'sog', title: 'Vitesse (kn)', color: '#1f5f7a', zero: true },
   { key: 'vmg', title: 'VMG (kn)', color: '#2f7d5b', zero: true },
+  { key: 'tws', title: 'Force du vent réel TWS (kn)', color: '#256abf', zero: true },
+  { key: 'twd', title: 'Direction du vent réel TWD (°)', color: '#8a4f7d', angle: true },
   { key: 'roll', title: 'Roll (°)', color: '#a86a00', zero: true },
   { key: 'pitch', title: 'Pitch (°)', color: '#6b4c9a', zero: false },
 ];
 const BAND = { tack: 'rgba(31,95,122,0.16)', gybe: 'rgba(168,106,0,0.22)' };
 const SVG = 'http://www.w3.org/2000/svg';
+// Couleurs des points de la polaire selon la force du vent : une seule teinte, du clair (vent faible) au foncé (vent fort).
+// Rampe vérifiée contre le fond des panneaux (#e3dacc) : écarts de luminosité visibles, extrémité claire ≥ 2:1.
+const WIND_COLORS = ['#5598e7', '#2a78d6', '#1c5cab', '#0d366b'];
+const wrap360 = (d) => ((d % 360) + 360) % 360;
 
 let sessionId = 0;
 let seek = () => {};
@@ -233,16 +239,22 @@ function renderPolar(series, bins) {
   const t0 = el('text', { x: c, y: 14, 'font-size': 11, 'text-anchor': 'middle', fill: 'rgba(20,20,19,0.7)' }, svg);
   t0.textContent = '0°';
 
-  let dots = '';
+  // Points colorés selon la force du vent réel au moment de la mesure.
+  const classes = windClasses(series.tws);
+  const dots = classes.map(() => '');
   const stride = Math.max(1, Math.floor(speeds.length / 3000));
   for (let i = 0; i < series.sog.length; i += stride) {
-    if (series.sog[i] === null || series.twa[i] === null || series.sog[i] < 1) continue;
+    if (series.sog[i] === null || series.twa[i] === null || series.tws[i] === null || series.sog[i] < 1) continue;
     const [x, y] = pos(series.twa[i], series.sog[i]);
-    dots += 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'h0';
+    const k = classes.findIndex((c) => series.tws[i] < c.to);
+    dots[k === -1 ? classes.length - 1 : k] += 'M' + x.toFixed(1) + ' ' + y.toFixed(1) + 'h0';
   }
-  el('path', { d: dots, stroke: 'rgba(20,20,19,0.3)', 'stroke-width': 3, 'stroke-linecap': 'round', fill: 'none' }, svg);
+  classes.forEach((c, k) => {
+    if (dots[k]) el('path', { d: dots[k], stroke: c.color, 'stroke-opacity': 0.75, 'stroke-width': 4, 'stroke-linecap': 'round', fill: 'none' }, svg);
+  });
+  renderWindLegend(classes);
 
-  for (const [key, color, width, dash] of [['p90', '#a86a00', 1.5, '4 3'], ['mean', '#1f5f7a', 3, '']]) {
+  for (const [key, color, width, dash] of [['p90', '#a86a00', 1.5, '4 3'], ['mean', '#141413', 2.5, '']]) {
     for (const side of [1, -1]) {
       const pts = bins
         .filter((b) => Math.sign(b.twa) === side)
@@ -263,10 +275,290 @@ function renderPolar(series, bins) {
   };
 }
 
+// Jusqu'à 4 classes de force de vent, bornées par des valeurs rondes couvrant la séance (2e au 98e percentile).
+function windClasses(tws) {
+  const v = tws.filter((x) => x !== null).sort((a, b) => a - b);
+  if (v.length === 0) return [{ from: -Infinity, to: Infinity, color: WIND_COLORS[1] }];
+  const lo = v[Math.floor((v.length - 1) * 0.02)];
+  const hi = v[Math.ceil((v.length - 1) * 0.98)];
+  const step = [0.5, 1, 2, 2.5, 5, 10].find((s) => (hi - lo) / s <= 4) || 10;
+  const start = Math.floor(lo / step) * step;
+  const count = Math.max(1, Math.min(4, Math.ceil((hi - start) / step)));
+  const palette = count === 1 ? [WIND_COLORS[1]] : count === 2 ? [WIND_COLORS[0], WIND_COLORS[3]] : count === 3 ? [WIND_COLORS[0], WIND_COLORS[2], WIND_COLORS[3]] : WIND_COLORS;
+  return Array.from({ length: count }, (_, k) => ({
+    from: k === 0 ? -Infinity : start + k * step,
+    to: k === count - 1 ? Infinity : start + (k + 1) * step,
+    color: palette[k],
+  }));
+}
+
+function renderWindLegend(classes) {
+  const box = $('polar-legend');
+  box.textContent = '';
+  const title = document.createElement('span');
+  title.className = 'legend-title';
+  title.textContent = 'Force du vent réel (TWS) :';
+  box.append(title);
+  const n = (x) => fmt(x, Number.isInteger(x) ? 0 : 1);
+  for (const c of classes) {
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = c.color;
+    let label;
+    if (classes.length === 1) label = 'toutes les mesures';
+    else if (c.from === -Infinity) label = 'moins de ' + n(c.to) + ' kn';
+    else if (c.to === Infinity) label = n(c.from) + ' kn et plus';
+    else label = n(c.from) + ' à ' + n(c.to) + ' kn';
+    box.append(dot, label);
+  }
+}
+
+// ---------- Vidéo et lecture ----------
+// Le curseur est la référence. Quand la vidéo couvre l'instant courant, elle est calée dessus ;
+// en lecture, c'est elle qui fait avancer le curseur. Hors de la vidéo (absente, plus courte, commencée
+// plus tard), la lecture continue au rythme de l'horloge et la vidéo affiche un message.
+
+function setupPlayer(video, n, setTime) {
+  const v = $('video');
+  const overlay = $('video-overlay');
+  const playBtn = $('play');
+  let available = Boolean(video);
+  let blocked = false;
+  let offset = video ? video.offset_s : 0;
+  let shift = video ? video.shift_s : 0;
+  let playing = false;
+  let rate = 1;
+  let t = 0;
+  let last = 0;
+
+  const vt = (time) => time - offset + shift; // temps dans la vidéo pour un instant de la séance
+  const duration = () => (Number.isFinite(v.duration) ? v.duration : Infinity);
+  const covers = (time) => available && !blocked && vt(time) >= 0 && vt(time) < duration() - 0.05;
+
+  function showOverlay(time) {
+    if (!available) return;
+    if (covers(time)) {
+      overlay.hidden = true;
+      return;
+    }
+    if (blocked) overlay.textContent = 'Le navigateur bloque la lecture : touche la vidéo pour la lancer.';
+    else if (vt(time) < 0) overlay.textContent = 'La vidéo commence à ' + fmtElapsed(offset - shift) + '. Touche ici pour y aller.';
+    else overlay.textContent = 'La vidéo s’arrête à ' + fmtElapsed(offset - shift + duration()) + '. Les mesures continuent sans image.';
+    overlay.hidden = false;
+  }
+
+  function align(time) {
+    if (!available) return;
+    if (covers(time)) {
+      if (Math.abs(v.currentTime - vt(time)) > 0.25) v.currentTime = vt(time);
+      if (playing && v.paused) startVideo();
+    } else if (!v.paused) {
+      v.pause();
+    }
+    showOverlay(time);
+  }
+
+  function startVideo() {
+    v.playbackRate = rate;
+    v.play().catch(() => {
+      // Lecture refusée (navigateur, fichier) : on continue sans image.
+      blocked = true;
+      showOverlay(t);
+    });
+  }
+
+  function tick(now) {
+    if (!playing) return;
+    const videoRunning = covers(t) && !v.paused && !v.seeking;
+    if (videoRunning) t = v.currentTime + offset - shift;
+    else t += ((now - last) / 1000) * rate;
+    last = now;
+    if (t >= n - 1) {
+      t = n - 1;
+      stop();
+    } else if (covers(t)) {
+      overlay.hidden = true;
+      if (v.paused) {
+        v.currentTime = vt(t);
+        startVideo();
+      }
+    } else {
+      if (!v.paused) v.pause();
+      showOverlay(t);
+    }
+    setTime(t, true);
+    if (playing) requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (t >= n - 1) setTime(0);
+    playing = true;
+    playBtn.textContent = '❚❚';
+    playBtn.setAttribute('aria-label', 'Pause');
+    last = performance.now();
+    if (covers(t)) startVideo();
+    requestAnimationFrame(tick);
+  }
+
+  function stop() {
+    playing = false;
+    playBtn.textContent = '▶';
+    playBtn.setAttribute('aria-label', 'Lecture');
+    if (available && !v.paused) v.pause();
+  }
+
+  const toggle = () => (playing ? stop() : start());
+  playBtn.addEventListener('click', toggle);
+  $('rate').addEventListener('change', () => {
+    rate = Number($('rate').value) || 1;
+    v.playbackRate = rate;
+  });
+
+  if (available) {
+    v.addEventListener('click', toggle);
+    v.addEventListener('loadedmetadata', () => {
+      describeVideo(video, offset, shift, v.duration, n);
+      align(t);
+    });
+    v.addEventListener('error', () => {
+      available = false;
+      overlay.hidden = true;
+      $('video-box').hidden = true;
+      $('video-full').hidden = true;
+      $('video-sync').hidden = true;
+      $('video-caption').textContent = 'Cette vidéo ne peut pas être lue par ce navigateur (format ou fichier endommagé).';
+    });
+    overlay.addEventListener('click', () => {
+      if (blocked) {
+        blocked = false;
+        if (playing) startVideo();
+      } else if (vt(t) < 0) {
+        setTime(offset - shift);
+      }
+    });
+    v.src = video.url;
+  }
+
+  return {
+    sync(time) {
+      t = time;
+      align(time);
+    },
+    setShift(value) {
+      shift = value;
+      describeVideo(video, offset, shift, v.duration, n);
+      align(t);
+    },
+  };
+}
+
+function describeVideo(video, offset, shift, duration, n) {
+  const from = offset - shift;
+  const parts = [];
+  if (video.source === 'raspberry') parts.push('Synchronisée avec l’horloge du Raspberry.');
+  else if (video.source === 'mp4') parts.push('Synchronisée d’après la date du fichier vidéo (à la seconde près).');
+  else parts.push('Début de la vidéo inconnu : supposé au début de la séance.');
+  if (Number.isFinite(duration)) {
+    const a = Math.max(0, from);
+    const b = Math.min(n - 1, from + duration);
+    if (b <= a) parts.push('Elle ne recouvre pas les mesures : vérifie la synchronisation.');
+    else if (a > 1 || b < n - 2) parts.push('Images de ' + fmtElapsed(a) + ' à ' + fmtElapsed(b) + ' sur ' + fmtElapsed(n - 1) + ' de séance.');
+    else parts.push('Elle couvre toute la séance.');
+  }
+  if (video.size) parts.push(fmtSize(video.size) + '.');
+  $('video-caption').textContent = parts.join(' ');
+}
+
+// Panneau vidéo : ajout, remplacement, suppression et réglage de la synchronisation.
+function renderVideoPanel(video, player) {
+  const has = Boolean(video);
+  $('video-box').hidden = !has;
+  $('video-full').hidden = !has;
+  $('video-sync').hidden = !has;
+  $('video-remove').hidden = !has;
+  $('video-add-label').textContent = has ? 'Remplacer la vidéo' : 'Ajouter une vidéo';
+  document.querySelector('.side').classList.toggle('with-video', has);
+  if (!has) $('video-caption').textContent = 'Aucune vidéo pour cette session. Les mesures restent consultables seules.';
+
+  $('video-full').addEventListener('click', () => {
+    const v = $('video');
+    if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+  });
+
+  let shift = has ? video.shift_s : 0;
+  let saveTimer = 0;
+  const showShift = () => ($('video-shift').textContent = (shift > 0 ? '+' : '') + fmt(shift, Number.isInteger(shift) ? 0 : 1) + ' s');
+  showShift();
+  const nudge = (delta) => {
+    shift = Math.round((shift + delta) * 10) / 10;
+    showShift();
+    player.setShift(shift);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await callWithCode('/api/sessions/' + sessionId, 'PATCH', { video_shift: shift });
+      } catch (e) {
+        $('video-caption').textContent = 'Synchronisation non enregistrée : ' + e.message;
+      }
+    }, 800);
+  };
+  $('video-back').addEventListener('click', () => nudge(-1));
+  $('video-fwd').addEventListener('click', () => nudge(1));
+
+  $('video-remove').addEventListener('click', async () => {
+    if (!confirm('Retirer la vidéo de cette session ? Le fichier est effacé du serveur.')) return;
+    try {
+      await callWithCode('/api/sessions/' + sessionId + '/video', 'DELETE');
+      location.reload();
+    } catch (e) {
+      $('video-caption').textContent = e.message;
+    }
+  });
+
+  $('video-file').addEventListener('change', async () => {
+    const file = $('video-file').files[0];
+    $('video-file').value = '';
+    if (!file) return;
+    const progress = $('video-progress');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const code = storedCode() || prompt("Code d'accès") || '';
+      if (!code) return;
+      progress.hidden = false;
+      progress.value = 0;
+      $('video-caption').textContent = 'Envoi de ' + file.name + ' (' + fmtSize(file.size) + ')… garde cette page ouverte.';
+      try {
+        const { status, data } = await sendFile('/api/videos?session=' + sessionId, file, code, (p) => (progress.value = p));
+        progress.hidden = true;
+        if (status === 401) {
+          try {
+            localStorage.removeItem('abraxas-code');
+          } catch (e) {}
+          $('video-caption').textContent = "Code d'accès incorrect.";
+          continue;
+        }
+        if (status !== 200) {
+          $('video-caption').textContent = data.error || 'Erreur ' + status;
+          return;
+        }
+        try {
+          localStorage.setItem('abraxas-code', code);
+        } catch (e) {}
+        location.reload();
+        return;
+      } catch (e) {
+        progress.hidden = true;
+        $('video-caption').textContent = e.message;
+        return;
+      }
+    }
+  });
+}
+
 // ---------- Page ----------
 
 function render(data) {
-  const { session, meta, series, stats, manoeuvres, polar, debrief } = data;
+  const { session, meta, series, stats, manoeuvres, polar, debrief, video } = data;
   const n = meta.n;
   const t0 = naiveDate(meta.t0).getTime();
   const end = new Date(t0 + meta.duration_s * 1000);
@@ -338,14 +630,21 @@ function render(data) {
     const holder = document.createElement('div');
     holder.className = 'chart';
     figure.append(holder);
-    plots.push(makeChart(holder, c, xs, series[c.key], manoeuvres, () => cursor, (t) => seek(t)));
+    plots.push(makeChart(holder, c, xs, c.angle ? unwrapAngles(series[c.key]) : series[c.key], manoeuvres, () => cursor, (t) => seek(t)));
   }
 
   const slider = $('slider');
   slider.max = n - 1;
+  const player = setupPlayer(video, n, (t, fromPlayer) => seek(t, fromPlayer));
+  renderVideoPanel(video, player);
 
-  seek = (t) => {
-    cursor = Math.max(0, Math.min(n - 1, Math.round(t)));
+  // fromPlayer : l'instant vient de la lecture en cours, la vidéo est déjà au bon endroit.
+  seek = (t, fromPlayer = false) => {
+    const time = Math.max(0, Math.min(n - 1, t));
+    if (!fromPlayer) player.sync(time);
+    const next = Math.round(time);
+    if (fromPlayer && next === cursor) return;
+    cursor = next;
     slider.value = cursor;
     $('clock').textContent = fmtClock(t0 + cursor * 1000);
     $('elapsed').textContent = fmtElapsed(cursor);
@@ -359,6 +658,20 @@ function render(data) {
   };
   slider.addEventListener('input', () => seek(Number(slider.value)));
   seek(0);
+}
+
+// Direction : les valeurs sont ramenées autour de la direction moyenne, pour que 359° → 1° ne fasse pas un saut
+// sur le graphique. Les graduations affichent ensuite la valeur modulo 360.
+function unwrapAngles(values) {
+  let s = 0;
+  let c = 0;
+  for (const v of values) {
+    if (v === null) continue;
+    s += Math.sin((v * Math.PI) / 180);
+    c += Math.cos((v * Math.PI) / 180);
+  }
+  const m = (Math.atan2(s, c) * 180) / Math.PI;
+  return values.map((v) => (v === null ? null : m + ((((v - m + 180) % 360) + 360) % 360) - 180));
 }
 
 function fillForward(values) {
@@ -395,7 +708,9 @@ function makeChart(holder, c, xs, ys, manoeuvres, getCursor, setTime) {
         },
         values: (u, splits) => splits.map(fmtElapsed),
       },
-      { stroke, grid: { stroke: grid }, size: 46 },
+      c.angle
+        ? { stroke, grid: { stroke: grid }, size: 46, values: (u, splits) => splits.map((v) => Math.round(wrap360(v)) + '°') }
+        : { stroke, grid: { stroke: grid }, size: 46 },
     ],
     series: [{}, { stroke: c.color, width: 1.8, spanGaps: false, points: { show: false } }],
     hooks: {

@@ -179,5 +179,10 @@ for (let k = 0; k < 150; k++) {
   insImu.run(iso(start2 + k * 200), ...(nominal ? [...acc, ...gyro, ...mag] : [...mag, ...acc, ...gyro]), sid2);
 }
 db.exec('COMMIT');
+
+// ---------- Table videos ----------
+// Ajoutée par le serveur d'export du Raspberry : instant où la vidéo de la session 1 a commencé.
+db.exec('CREATE TABLE videos (session_id INTEGER PRIMARY KEY, start DATETIME NOT NULL)');
+db.prepare('INSERT INTO videos (session_id, start) VALUES (?, ?)').run(sid, new Date(startMs + 2400).toISOString().slice(0, 23) + '000');
 db.close();
 console.log(`Base de démonstration écrite : ${outFile} (${nominal ? 'ordre IMU nominal' : 'ordre IMU mag/accel/gyro'})`);

@@ -9,12 +9,12 @@
 <body>
 <header class="topbar"><a class="brand" href="/">Abraxas</a><nav><a href="/">Sessions</a><a href="/upload" aria-current="page">Importer</a></nav></header>
 <main class="narrow">
-  <h1>Importer la base de données</h1>
-  <p class="lead">Envoie le fichier téléchargé depuis le Raspberry (abraxas_….db). Les sessions déjà présentes ne sont pas dupliquées.</p>
+  <h1>Importer une séance</h1>
+  <p class="lead">Envoie les fichiers téléchargés depuis le Raspberry : la base (abraxas_….db) et, si tu les as, les vidéos (session_….mp4). Tu peux tout choisir d'un coup. Les sessions déjà présentes ne sont pas dupliquées, et chaque vidéo rejoint automatiquement sa session.</p>
   <div id="notice" class="notice error" hidden></div>
   <form id="form" class="upload">
-    <label>Fichier de la base
-      <input id="file" type="file" accept=".db,.sqlite,.sqlite3,application/octet-stream" required>
+    <label>Base de données et vidéos
+      <input id="file" type="file" accept=".db,.sqlite,.sqlite3,.mp4,video/mp4,application/octet-stream" multiple required>
     </label>
     <label>Code d'accès
       <input id="code" type="password" autocomplete="current-password" required>
