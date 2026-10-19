@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abraxas – Session</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar"><a class="brand" href="/">Abraxas</a><nav><a href="/" aria-current="page">Sessions</a><a href="/upload">Importer</a></nav></header>
+<main class="dash">
+  <div id="message" class="notice" hidden></div>
+  <div id="content" hidden>
+    <div class="page-head">
+      <h1 id="title"></h1>
+      <p id="subtitle" class="lead"></p>
+    </div>
+    <div id="warnings"></div>
+    <section id="stats"></section>
+    <section class="panel debrief" id="debrief-panel">
+      <div class="debrief-head">
+        <h2>Débrief IA</h2>
+        <button id="debrief-btn" type="button" class="small" hidden>Régénérer</button>
+      </div>
+      <div id="debrief-body"></div>
+      <p id="debrief-foot" class="caption"></p>
+    </section>
+    <div class="split">
+      <div class="side">
+        <section class="panel video-panel">
+          <div class="panel-head">
+            <h2>Vidéo</h2>
+            <span class="panel-tools">
+              <button id="video-full" type="button" class="small" hidden>Plein écran</button>
+            </span>
+          </div>
+          <div id="video-box" class="video-box" hidden>
+            <video id="video" playsinline muted preload="metadata"></video>
+            <button id="video-overlay" type="button" class="video-overlay" hidden></button>
+          </div>
+          <p id="video-caption" class="caption"></p>
+          <div class="video-actions">
+            <span id="video-sync" class="video-sync" hidden>
+              Synchronisation
+              <button id="video-back" type="button" class="small" title="Montrer l'image 1 s plus tôt">−1 s</button>
+              <output id="video-shift">0 s</output>
+              <button id="video-fwd" type="button" class="small" title="Montrer l'image 1 s plus tard">+1 s</button>
+            </span>
+            <label class="file-button"><span id="video-add-label">Ajouter une vidéo</span><input id="video-file" type="file" accept=".mp4,video/mp4"></label>
+            <button id="video-remove" type="button" class="small" hidden>Retirer la vidéo</button>
+          </div>
+          <progress id="video-progress" value="0" max="1" hidden></progress>
+        </section>
+        <section class="panel map-panel">
+          <div id="map"></div>
+          <p id="position" class="caption"></p>
+        </section>
+      </div>
+      <section id="charts" class="charts"></section>
+    </div>
+    <div class="lower">
+      <section class="panel">
+        <h2>Courbe polaire</h2>
+        <div id="polar"></div>
+        <p class="legend"><span class="line-key"></span>vitesse moyenne par angle<span class="line-key dashed"></span>90<sup>e</sup> percentile</p>
+        <p id="polar-legend" class="legend"></p>
+      </section>
+      <section class="panel">
+        <h2>Manœuvres détectées</h2>
+        <div id="manoeuvres"></div>
+        <p class="legend"><span class="dot" style="background: rgba(31,95,122,.45)"></span>virement<span class="dot" style="background: rgba(168,106,0,.55)"></span>empannage (bandes visibles sur les graphiques)</p>
+      </section>
+    </div>
+    <details class="panel">
+      <summary>Comment ces valeurs sont calculées</summary>
+      <ul>
+        <li>Toutes les mesures sont ramenées à une valeur par seconde. Les maximums sont calculés sur une moyenne glissante de 5 s pour ignorer les pics isolés.</li>
+        <li>Vent réel (TWS, TWA) et VMG : mêmes formules que le dashboard du Raspberry. La VMG est positive au près et négative au portant.</li>
+        <li>Près : angle au vent réel de 75° ou moins. Portant : 105° ou plus. Les vitesses moyennes et VMG ne comptent que les moments où le bateau avance à plus de 1 nœud.</li>
+        <li>Distance : somme de la vitesse sol, seconde par seconde.</li>
+        <li>Cartes avec une flèche : clique dessus pour voir la médiane à la place de la moyenne.</li>
+        <li>Courbe polaire : vitesse selon l'angle au vent réel. Chaque point est coloré selon la force du vent réel (TWS) mesurée à cet instant. Elle dépend de la force du vent, à comparer avec prudence entre séances.</li>
+        <li>TWD : direction d'où vient le vent réel, par rapport au nord (cap GPS + angle au vent réel).</li>
+        <li>Vidéo : elle suit le curseur. Le Raspberry note l'instant où elle commence ; à défaut, on se fie à la date du fichier vidéo. Si l'image est en avance ou en retard sur les mesures, corrige avec les boutons −1 s / +1 s. Hors de la vidéo (avant son début, après sa fin), les mesures continuent seules.</li>
+        <li>Débrief IA : rédigé par l'IA à partir des chiffres de la séance (pas de la vidéo). À lire comme une aide à l'analyse, pas comme une vérité.</li>
+        <li>Roll moyen et max : valeur absolue de l'inclinaison. Pitch et roll utilisent les formules du Raspberry (roll = accélération X × 90, pitch = accélération Y × 90 + 90).</li>
+        <li>Manœuvre : le vent passe d'un côté à l'autre du bateau, par l'avant (virement) ou par l'arrière (empannage), entre deux amures stables d'au moins 8 s.</li>
+        <li>Vitesse conservée : vitesse minimale pendant la manœuvre divisée par la vitesse moyenne des 5 s précédentes.</li>
+        <li>Temps pour repartir : durée entre la fin de la manœuvre et le retour à 90 % de la vitesse d'entrée.</li>
+        <li>L'heure affichée est celle du Raspberry.</li>
+      </ul>
+    </details>
+  </div>
+</main>
+
+<div class="timebar" id="timebar" hidden>
+  <div class="timebar-row">
+    <button id="play" type="button" class="play" aria-label="Lecture">▶</button>
+    <output id="clock">--:--:--</output>
+    <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Temps dans la session">
+    <span id="elapsed" class="elapsed">0:00</span>
+    <select id="rate" aria-label="Vitesse de lecture">
+      <option value="1">×1</option>
+      <option value="2">×2</option>
+      <option value="4">×4</option>
+      <option value="8">×8</option>
+    </select>
+  </div>
+  <dl class="readout">
+    <div><dt>SOG kn</dt><dd id="r-sog">–</dd></div>
+    <div><dt>COG °</dt><dd id="r-cog">–</dd></div>
+    <div><dt>AWA °</dt><dd id="r-awa">–</dd></div>
+    <div><dt>AWS kn</dt><dd id="r-aws">–</dd></div>
+    <div><dt>TWA °</dt><dd id="r-twa">–</dd></div>
+    <div><dt>TWS kn</dt><dd id="r-tws">–</dd></div>
+    <div><dt>TWD °</dt><dd id="r-twd">–</dd></div>
+    <div><dt>VMG kn</dt><dd id="r-vmg">–</dd></div>
+    <div><dt>Pitch °</dt><dd id="r-pitch">–</dd></div>
+    <div><dt>Roll °</dt><dd id="r-roll">–</dd></div>
+  </dl>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<script type="module" src="/js/dashboard.js"></script>
+</body>
+</html>

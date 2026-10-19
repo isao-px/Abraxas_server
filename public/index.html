@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abraxas – Sessions</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar"><a class="brand" href="/">Abraxas</a><nav><a href="/" aria-current="page">Sessions</a><a href="/upload">Importer</a></nav></header>
+<main>
+  <h1>Sessions</h1>
+  <p class="lead">Choisis une session pour ouvrir son dashboard.</p>
+  <div id="message" class="notice error" hidden></div>
+  <div id="list" class="session-list" aria-live="polite">Chargement…</div>
+</main>
+<script type="module" src="/js/sessions.js"></script>
+</body>
+</html>
