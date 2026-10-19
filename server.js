@@ -11,6 +11,7 @@
 //   MAX_VIDEO_MB      taille maximale d'une vidéo envoyée, 4096 par défaut
 //   ANTHROPIC_API_KEY  clé de l'API Anthropic pour les débriefs IA (facultative)
 //   ANTHROPIC_MODEL    modèle utilisé pour les débriefs, claude-sonnet-5-5 par défaut
+import './lib/env.js'; // en premier : charge .env avant que les autres modules lisent leurs réglages
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';

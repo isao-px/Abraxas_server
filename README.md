@@ -24,7 +24,7 @@ The web interface is in French.
 
 ## Configuration
 
-Everything is configured with environment variables.
+Everything is configured with environment variables. If your hosting panel cannot set them, copy `.env.example` to `.env` next to `server.js` and fill it in: the server reads this file at startup. A variable already set in the environment takes precedence over the file. Never commit `.env`.
 
 | Variable | Required | Description |
 |---|---|---|
