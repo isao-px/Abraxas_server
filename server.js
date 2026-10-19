@@ -95,7 +95,7 @@ function sendText(res, status, text) {
 // Renvoie true si le code est valide ; sinon répond lui-même et renvoie false.
 async function checkCode(req, res) {
   if (!CODE_HASH) {
-    reject(req, res, 503, "L'import est désactivé : la variable UPLOAD_CODE_HASH n'est pas définie (ou mal formée) sur le serveur.");
+    reject(req, res, 503, "Import désactivé : la variable UPLOAD_CODE_HASH n'est pas ou mal définie sur le serveur.");
     return false;
   }
   if (!(await codeMatches(String(req.headers['x-access-code'] || ''), CODE_HASH))) {
@@ -186,7 +186,7 @@ async function handleVideoUpload(req, res, url) {
         req,
         res,
         400,
-        `Nom de vidéo non reconnu (« ${fileName || 'sans nom'} ») : il doit contenir la date et l'heure de la session, comme session_3_2026-10-17_14-02-08.mp4. Sinon, ajoute la vidéo depuis le dashboard de la session.`
+        `Nom de vidéo non reconnu (« ${fileName || 'sans nom'} ») : il doit être au format session_3_2026-10-17_14-02-08.mp4. Sinon, la vidéo peut être ajoutée depuis le dashboard de la session.`
       );
     }
     session = findSessionByKey(key);
@@ -319,7 +319,7 @@ const server = http.createServer(async (req, res) => {
       if (match[2] && req.method === 'POST') {
         if (!(await checkCode(req, res))) return;
         if (!exists()) return sendJson(req, res, 404, { error: 'Session introuvable.' });
-        if (!debriefEnabled()) return sendJson(req, res, 503, { error: "Débrief IA désactivé : la variable ANTHROPIC_API_KEY n'est pas définie." });
+        if (!debriefEnabled()) return sendJson(req, res, 503, { error: "Débrief IA désactivé" });
         queueDebrief(id);
         return sendJson(req, res, 202, debrief());
       }
@@ -387,5 +387,5 @@ server.listen(PORT, () => {
         : "UPLOAD_CODE_HASH n'est pas défini : l'import est désactivé."
     );
   }
-  if (process.env.UPLOAD_CODE) console.warn("UPLOAD_CODE (code en clair) n'est plus lu : définis UPLOAD_CODE_HASH et supprime UPLOAD_CODE.");
+  if (process.env.UPLOAD_CODE) console.warn("UPLOAD_CODE_HASH indéfini. UPLOAD_CODE est obsolète");
 });
