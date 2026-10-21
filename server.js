@@ -376,6 +376,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Pas de limite de durée pour recevoir une requête (5 min par défaut, puis erreur 408) : les vidéos pèsent plusieurs Go.
+server.requestTimeout = 0;
+
 server.listen(PORT, () => {
   console.log(`Serveur Abraxas prêt sur le port ${PORT}`);
   resumeDebriefs();
